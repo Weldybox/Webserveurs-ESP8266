@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<script src="https://code.jquery.com/jquery-3.1.1.min.js"></script>
+<script src="https://code.highcharts.com/stock/highstock.js"></script>
+<script src="https://code.highcharts.com/stock/modules/exporting.js"></script>
+<script src="https://code.highcharts.com/stock/modules/export-data.js"></script>
+
+<div id="container" style="height: 400px; min-width: 310px"></div>
+</head>
+ <style type="text/css">
+
+</style>
+ <script type="text/javascript">
+function readTextFile(file)
+{
+    var rawFile = new XMLHttpRequest();
+    rawFile.open("GET", file, false);
+    rawFile.onreadystatechange = function ()
+    {
+        if(rawFile.readyState === 4)
+        {
+            if(rawFile.status === 200 || rawFile.status == 0)
+            {
+				var text = rawFile.responseText;
+				if(text != null){
+					var tableau = [];
+					//var tableauInt = [];
+					
+					(text.split(";")).forEach(function(element){
+						var tableauInt = [];
+						(element.split(",")).forEach(function(i){
+							var reel = parseFloat(i);
+							tableauInt.push(reel);
+						});
+						tableauInt[0] = tableauInt[0]*1000;
+						tableau.push(tableauInt);
+						//tableau.push(tableauInt);
+						//tableau.pop();
+					
+					});
+					
+				}
+				
+				tableau.pop();
+				console.log(tableau);
+				// Create the chart
+				Highcharts.stockChart('container', {
+					colors: ['#e52d2d'],
+					chart: {
+						backgroundColor: {
+							linearGradient: { x1: 0, y1: 0, x2: 1, y2: 1 },
+							stops: [
+								[0, '#2a2a2b'],
+								[1, '#3e3e40']
+							]
+						},
+					},
+
+					time: {
+						useUTC: false
+					},
+
+					yAxis: {
+						gridLineColor: '#707073',
+						labels: {
+							style: {
+								color: '#E0E0E3'
+							}
+						},
+						lineColor: '#707073',
+						minorGridLineColor: '#505053',
+						tickColor: '#707073',
+						tickWidth: 1,
+						title: {
+							style: {
+								color: '#A0A0A3'
+							}
+						}
+					},
+					rangeSelector: {
+						buttons: [{
+						count: 1,
+						type: 'hour',
+						text: 'Heure'
+						},
+						
+						{
+						count: 1,
+						type: 'day',
+						text: 'jour'
+						},{
+						count: 1,
+						type: 'month',
+						text: 'mois'
+						}, {
+						type: 'all',
+						text: 'All'
+						}],
+					buttonSpacing:5,
+					buttonTheme: {
+						fill: 'none',
+							stroke: 'none',
+							'stroke-width': 0,
+							r: 8,
+							style: {
+								color: 'white',
+							},
+							states: {
+								hover: {
+									fill: '#345fb5',
+								},
+								select: {
+									fill: '#507dd8',
+									style: {
+										color: 'white'
+									}
+								}
+									// disabled: { ... }
+							}
+						},
+						inputBoxBorderColor: '#505053',
+						inputStyle: {
+							backgroundColor: '#333',
+							color: 'silver'
+						},
+						labelStyle: {
+							color: 'silver'
+						}  
+					},
+					inputBoxWidth: 200,
+					inputBoxHeight: 18,
+					navigator: {
+						handles: {
+							backgroundColor: '#666',
+							borderColor: '#AAA'
+						},
+						outlineColor: '#CCC',
+						maskFill: 'rgba(255,255,255,0.1)',
+						series: {
+							color: '#7798BF',
+							lineColor: '#A6C7ED'
+						},
+						xAxis: {
+							gridLineColor: '#505053'
+						}
+					},
+					
+					scrollbar: {
+						barBackgroundColor: '#808083',
+						barBorderColor: '#808083',
+						buttonArrowColor: '#CCC',
+						buttonBackgroundColor: '#606063',
+						buttonBorderColor: '#606063',
+						rifleColor: '#FFF',
+						trackBackgroundColor: '#404043',
+						trackBorderColor: '#404043'
+					},
+
+					title: {
+						text: 'Courbe de température'
+					},
+
+					exporting: {
+						enabled: false
+					},
+
+					series: [{
+					name: 'température (C°)',
+					data: tableau
+					}]
+				});
+            }
+        }
+    }
+    rawFile.send(null);
+}
+readTextFile("temperature.csv");
+</script>
+</head>
+<body style="background-color: #1f1f1f;">
+</body>
+</html>
