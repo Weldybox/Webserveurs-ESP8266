@@ -8,8 +8,14 @@
 #include <ESP8266WebServer.h>
 #include <NTPClient.h>
 #include <FS.h>
+#include <ESP8266mDNS.h>
 
-unsigned long utcOffsetInSeconds = 3600;
+#define MSECOND  1000
+#define MMINUTE  60*MSECOND
+#define MHOUR    60*MMINUTE
+#define MDAY 24*MHOUR
+
+unsigned long utcOffsetInSeconds = 0;
 
 
 /*--------------------------------------------------------------------------------
@@ -17,7 +23,6 @@ Fonction qui permet de déterminer si l'on est en heure d'été ou d'hiver
 --------------------------------------------------------------------------------*/
 int EteOuHiver(unsigned int utcOffsetInSeconds, const char* ete){
   if(ete == "ete"){
-    utcOffsetInSeconds += 3600;
     return utcOffsetInSeconds;
   }
 }
@@ -119,6 +124,12 @@ void setup()
   Serial.println();
 
 
+  if (!MDNS.begin("WeldyChart")) {
+    Serial.println("Error setting up MDNS responder!");
+    while (1) {
+      delay(1000);
+    }
+  }
 
   EEPROM.get(0,readconf);
   Serial.println("\n\n\n");
@@ -162,7 +173,7 @@ void loop()
   webserveur
   --------------------------------------------------------------------------------*/
   unsigned long currentLoopMillis = millis();
-  if(currentLoopMillis - previousLoopMillis >= 30000){
+  if(currentLoopMillis - previousLoopMillis >= 30*MSECOND){
     addData();
     previousLoopMillis = millis();
 }
