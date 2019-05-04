@@ -31,7 +31,7 @@ int EteOuHiver(unsigned int utcOffsetInSeconds, const char* ete){
 Définitions du client NTP pour récupérer les informations
 --------------------------------------------------------------------------------*/
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", EteOuHiver(utcOffsetInSeconds, "ete"));
+NTPClient timeClient(ntpUDP, "europe.pool.ntp.org",utcOffsetInSeconds);
 
 
 // Structure de donnée enregistrer dans la mémoire flash
@@ -48,6 +48,8 @@ unsigned long otamillis; //Variable qui va permettre de calculer le temps d'éxe
 
 Adafruit_BME280 bme; //Objet bme pour gérer la librairie BME
 ESP8266WebServer server; //Définition de l'objet webserver
+
+
 
 /*--------------------------------------------------------------------------------
 Fonction de programmation OTA
@@ -76,7 +78,6 @@ void confOTA() {
   ArduinoOTA.begin();
 }
 
-
 void addData() {
   char strbuffer[64];
   int timestamp = timeClient.getEpochTime();
@@ -96,8 +97,6 @@ void addData() {
 
 void setup()
 {
-
-
 
   Serial.begin(115200);
  
@@ -153,8 +152,6 @@ void setup()
   if(!SPIFFS.begin()) {
   Serial.println("Erreur initialisation SPIFFS");
 }
-
-
   //Initialisation de la connexion avec le serveur NTP
  timeClient.begin();
   // configuration OTA
@@ -163,6 +160,7 @@ void setup()
   server.serveStatic("/index.html", SPIFFS, "/index.html");
   server.serveStatic("/temperature.csv", SPIFFS, "/temperature.csv");
   server.begin();
+
 }
 
 void loop()
@@ -175,7 +173,26 @@ void loop()
   unsigned long currentLoopMillis = millis();
   if(currentLoopMillis - previousLoopMillis >= 30*MSECOND){
     addData();
+
+    FSInfo fs_info;
+    SPIFFS.info(fs_info); 
+    File f1 = SPIFFS.open("/temperature.csv","r");
+    int data  = f1.size();
+    f1.close();
+    File f2 = SPIFFS.open("/index.html","r");
+    int html  = f2.size();
+    f2.close();
+    int total = data + html;
+    Serial.println(total);
+    Serial.println(fs_info.totalBytes);
+
+    if(total < fs_info.totalBytes){
+      Serial.println("ok");
+    }else{
+      Serial.println("nok");
+    }
     previousLoopMillis = millis();
+
 }
 
 
