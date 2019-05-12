@@ -3,19 +3,40 @@
     
     <script type="text/javascript" src="js/iron.js"></script>
     <script src="js/script.js"></script>
+    <script src="js/papaparse.js"></script>
      <meta name="viewport" content="width=device-width, initial-scale=1.0"> 
      <link rel="stylesheet" href="style/style.css">
   </head>
- 
+  <a class="btn btn-navbar" id="btnMenu">
+    <span class="icon-bar"></span>
+    <span class="icon-bar"></span>
+    <span class="icon-bar"></span>
+  </a>
   <body onload="javascript:init()"> 
-    <div class="wrap">
-      <div class="half">
-        <div class="colorPicker"></div>
-        <label class="onOff">
-          <input type="checkbox" checked>
-          <div class="slider"></div>
-        </label>
-      </div>
+    <div class="main-container">
+      <div class="wrap">
+          <div class="colorPicker"></div>
+            <label class="onOff">
+            <input type="checkbox" checked>
+              <div class="slider"></div>
+            </label>
+            <div class="sauvegarde">
+              <input type="button" id="sauv" value=Sauvegarder style="font-family: 'Karla', sans-serif;" onclick="saving()"/>
+
+              <input type="checkbox" id="menu-toggle" onclick="chooseSave()"/>
+              <label for="menu-toggle">
+                    <i id="open" class="material-icons">menu</i>
+                    <i id="close" class="material-icons">arrow_back</i>
+                </label>
+                <ul id="menu">
+                    <li><div id="carre1" onclick="setSaveColor('carre1')"></div></a></li>
+                    <li><div id="carre2" onclick="setSaveColor('carre2')"></div></a></li>
+                    <li><div id="carre3" onclick="setSaveColor('carre3')"></div></a></li>
+                    <li><div id="carre4" onclick="setSaveColor('carre4')"></div></a></li>
+                </ul>
+            </div>
+              </div>
     </div>
+  </div>
   </body>
 </html>
