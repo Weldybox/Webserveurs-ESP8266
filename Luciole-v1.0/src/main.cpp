@@ -12,73 +12,44 @@
 #include <FS.h>
 #include <WiFiManagerByWeldy.h>
 #include <DNSServer.h>
-    // color swirl! connect an RGB LED to the PWM pins as indicated
-    // in the #defines
-    // public domain, enjoy!
+#include <ArduinoJson.h>
+#include <NTPClient.h>
+#include <ESP8266HTTPClient.h>
+#include <WiFiUdp.h>
+
+#define MSECOND  1000
+#define MMINUTE  60*MSECOND
+#define MHOUR    60*MMINUTE
+#define MDAY 24*MHOUR
+
+int dataSmartEcl[3];
+
+
+unsigned long utcOffsetInSeconds = 7200;
+/*--------------------------------------------------------------------------------
+Variables qui définissent le mode de fonctionement et le taux de rafraichissement
+--------------------------------------------------------------------------------*/
+unsigned long refresh;
+
+String mode = "Desative";
+
+//Variable qui stoque l'heure de coucher/lever de soleil et le timestamp
+
+uint8_t go = 0;
      
 #define REDPIN 13
 #define GREENPIN 12
 #define BLUEPIN 14
-     
-#define FADESPEED 5     // make this higher to slow down
 
 unsigned long previousLoopMillis = 0;
 
-int limiteTemperature = 0; //temperature limite établie du côté web serveur
-
-ESP8266WebServer server;
+ESP8266WebServer server(80);
 WebSocketsServer webSocket = WebSocketsServer(81);
 
-/*--------------------------------------------------------------------------------
-Page web avec laquelle nous communiquerons avec l'aide d'un webscoket
---------------------------------------------------------------------------------*/
-char webpage[] PROGMEM = R"=====(
-<html>
-<head>
-<style>
-input[type=range] {
-  -webkit-appearance: none;     /*nécessaire pour Chrome */
-  padding: 0;                   /* nécessaire pour IE */
-  font: inherit;                /* même rendu suivant font document */
-  outline: none;
-  color: #069;                  /* sert pour couleur de référence, via currentColor, pour le curseur */
-  opacity: .8;
-  background: #CCC;             /* sert pour couleur de fond de la zone de déplacement */
-  box-sizing: border-box;       /* même modèle de boîte pour tous */
-  transition: opacity .2s;
-  cursor: pointer;
-}
-</style>
-<link href="https://fonts.googleapis.com/css?family=Noto+Sans" rel="stylesheet">
-  <script>
-    var Socket;
-    function init() {
-      Socket = new WebSocket('ws://' + window.location.hostname + ':81/');
-    }
-  function sendRed(){
-  Socket.send("R"+document.getElementById("red").value);
-}
-  function sendGreen(){
-  Socket.send("G"+document.getElementById("green").value);
-}
-  function sendBlue(){
-  Socket.send("B"+document.getElementById("blue").value);
-}
-  </script>
-</head>
-<body style="font-family: 'Noto Sans', sans-serif;" onload="javascript:init()">
-  <div style="text-align:center;">
-    <input type="range" min="0" max="255" value="50" id="red" oninput="sendRed()" />
-  </div>
-    <div style="text-align:center;">
-    <input type="range" min="0" max="255" value="50" id="green" oninput="sendGreen()" />
-  </div>
-  <div style="text-align:center;">
-    <input type="range" min="0" max="255" value="50" id="blue" oninput="sendBlue()" />
-  </div>
-</body>
-</html>
-)=====";   
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "europe.pool.ntp.org",utcOffsetInSeconds);  
+
+HTTPClient http;
 
 /*--------------------------------------------------------------------------------
 Fonction de programmation OTA
@@ -108,32 +79,258 @@ void confOTA() {
 }
 
 /*--------------------------------------------------------------------------------
+Fonction qui retourne si l'on est plus proche du levé ou coucher de soleuil.
+--------------------------------------------------------------------------------*/
+String sunPosition(int dataSmartEcl[], uint8_t longueur){
+  
+  //Compare la différence entre le timestamp et les valeurs de sunrise et sunset
+  Serial.print(abs(dataSmartEcl[2] - dataSmartEcl[0]));
+  Serial.print(" > ");
+  Serial.println(abs(dataSmartEcl[2] - dataSmartEcl[1]));
+
+  if(abs(dataSmartEcl[2] - dataSmartEcl[0]) > abs(dataSmartEcl[2] - dataSmartEcl[1])){
+    //Serial.println("soir");
+    return "soir";
+  }else{
+    //Serial.println("soir");
+    return "matin";
+  }
+}
+
+/*--------------------------------------------------------------------------------
+Fonction qui va retourner l'écart en seconde entre le jour et la nuit
+--------------------------------------------------------------------------------*/
+uint16_t checkTime(int dataSmartEcl[], uint8_t longueur){
+  uint8_t index;
+  //Selon si l'on est le matin ou le soir on définir l'index de comparaison 'sunset/sunrise'
+  if(sunPosition(dataSmartEcl, 3) == "matin"){index = 0;}
+  else{index=1;}
+
+  //On vérifie que l'heure du jour est au alentour de l'heure de sunset ou sunrise
+  int ecart =dataSmartEcl[2] - dataSmartEcl[index];
+  Serial.println(ecart);
+  if(ecart < 3600 && ecart > -3600){
+
+    //On retourne un resultat positive
+    int result = map(ecart, -3600, 3600, 0, 7200);
+    return result;
+  }else if(ecart < -3600){return 0;}
+  else if(ecart > 3600){return 7200;}
+  else{return 0;}
+
+}
+
+/*--------------------------------------------------------------------------------
+Fonction qui retourne les valeur de rouge vert et bleu en fonction de l'écart
+entre le jour et la nuit
+--------------------------------------------------------------------------------*/
+void displayColors(int dataSmartEcl[],uint8_t longueur){
+  /*--------------------------------------------------------------------------------
+  Selon l'a position du soleil nous cherchons à aller vers le blanc ou le orange/rouge
+  --------------------------------------------------------------------------------*/
+  Serial.println(sunPosition(dataSmartEcl, 3));
+  if(sunPosition(dataSmartEcl, 3) == "soir"){
+    Serial.println("soir");
+    uint8_t rouge = 255;
+    uint8_t vert = map(checkTime(dataSmartEcl, 3),0,7200,255,85);
+    uint8_t bleu = map(checkTime(dataSmartEcl, 3),0,7200,255,0);
+    analogWrite(REDPIN, rouge);
+    analogWrite(GREENPIN, vert);
+    analogWrite(BLUEPIN, bleu);
+    
+    String rgb = ("rgb("+String(rouge, DEC) +","+String(vert,DEC)+","+String(bleu,DEC)+")");
+    Serial.println(rgb);
+    webSocket.sendTXT(0,rgb);
+  }else{
+    Serial.println("journee");
+    uint8_t rouge = 255;
+    uint8_t vert = map(checkTime(dataSmartEcl, 3),0,7200,85,255);
+    uint8_t bleu = map(checkTime(dataSmartEcl, 3),0,7200,0,255);
+
+    analogWrite(REDPIN, rouge);
+    analogWrite(GREENPIN, vert);
+    analogWrite(BLUEPIN, bleu);
+
+    String rgb = ("rgb("+String(rouge, DEC) +","+String(vert,DEC)+","+String(bleu,DEC)+")");
+    Serial.println(rgb);
+    webSocket.sendTXT(0,rgb);
+  }
+
+}
+
+/*--------------------------------------------------------------------------------
+Fonction qui retourne l'heure de sunset ou de sunrise (en unix timestamp)
+--------------------------------------------------------------------------------*/
+int requete(String Apikey, String ville,String type){
+  String requeteHTTP =("http://api.openweathermap.org/data/2.5/weather?q=" + ville + "&APPID="
+  + Apikey); 
+  int timestamp;
+
+  http.begin(requeteHTTP);  //Specify request destination
+  int httpCode = http.GET();
+
+  if (httpCode > 0) { //Check the returning code
+ 
+  String payload = http.getString();   //Get the request response payload
+  //Serial.println(payload);      //Print the response payload
+
+  DynamicJsonDocument doc(765);
+  DeserializationError error = deserializeJson(doc, payload);
+  if(type == "sunrise"){
+    timestamp = doc["sys"]["sunrise"];
+  }else if(type == "sunset"){
+    timestamp = doc["sys"]["sunset"];
+  }
+  
+
+  }else{
+    timestamp = 0;
+  }
+  http.end();   //Close connection
+  return timestamp;
+}
+
+/*--------------------------------------------------------------------------------
+Fonction qui suprrime la première ligne que plus de 4 couleurs ont été enregistré
+--------------------------------------------------------------------------------*/
+void suprdata(String data[55], int tabIndex[5]){
+  File ftemp = SPIFFS.open("/save.csv", "w"); //On ouvre en mode écriture le fichier save.csv
+
+  for(uint8_t x=1;x<5;x++){ //Pour chaques couleurs sauvegardé
+    char msg[60];
+    int index = tabIndex[x]; //On récupère la position de chaque élément
+    String ligne = data[index]; //Puis on récupère la couleur voulue
+    sprintf(msg, "%s;",ligne.c_str()); //On concatène le point virgule avec le code couleur
+
+    ftemp.print(msg);
+  } 
+
+  ftemp.close();
+}
+
+/*--------------------------------------------------------------------------------
+Test s'il faut suprrimer la première couleur entrée.
+--------------------------------------------------------------------------------*/
+bool checkSpace(uint8_t count){
+  go += count;
+  if(go >= 5){
+    return 1;
+  }else{
+    return 0;
+  }
+}
+
+/*--------------------------------------------------------------------------------
+Supression de des couleurs enregistrer en trop.
+--------------------------------------------------------------------------------*/
+void suprSelect(){
+  File file = SPIFFS.open("/save.csv", "r");
+ 
+  //Tableau à sauvegarder dans le fichier temporaire
+  String save[55] = {};
+  int index[5] = {};
+  int longueur=1;
+
+
+  for(uint8_t i=0;i<5;i++){ //On répète la boucle 5 fois pour chaque couleur
+    String part = file.readStringUntil(';'); //On lie la ligne jusqu'au changement de couleur
+    if(longueur > 1){ //On ne prend pas en compte la première
+      save[longueur] = part; //On ajoute au tableau save la couleur
+      index[i] = longueur; //On ajoute au tableau index l'index de la couleur
+    }
+
+    longueur += part.length();
+  }
+  go --;
+  file.close(); 
+
+  suprdata(save, index);
+}
+
+/*--------------------------------------------------------------------------------
+Fonction qui traite les requêtes websocket arrivant depuis le serveur web.
+--------------------------------------------------------------------------------*/
+void addData(uint16_t couleur, uint8_t * couleurSave){
+  uint16_t save = (uint16_t) strtol((const char *) &couleurSave[2], NULL, 10);
+  File f = SPIFFS.open("/save.csv", "a+");
+  if (!f) {
+    Serial.println("erreur ouverture fichier!");
+  }else{
+    if(couleur == 'R'){
+        char buffred[16];
+        sprintf(buffred,"%d,",save);
+        Serial.println(buffred);
+        f.print(buffred);
+    }else if(couleur == 'G'){
+        char buffgreen[16];
+        sprintf(buffgreen,"%d,",save);
+        Serial.println(buffgreen);
+        f.print(buffgreen);
+        
+    }else if(couleur == 'B'){
+        char buffblue[16];
+        sprintf(buffblue,"%d;",save);
+        Serial.println(buffblue);
+        f.print(buffblue);
+
+        //On regarde si le nombre de couleur sauvegardé n'exède pas 5
+        if(checkSpace(1)){
+          Serial.println("true");
+
+          //Si c'est le cas on libère de l'espace dans la mémoire
+          suprSelect();
+        }
+    }
+    f.close();
+  }
+}
+
+/*--------------------------------------------------------------------------------
 Fonction qui traite les requêtes websocket arrivant depuis le serveur web.
 --------------------------------------------------------------------------------*/
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length){
   if(type == WStype_TEXT){
+    uint16_t couleur = (uint16_t) strtol((const char *) &payload[1], NULL, 10);
     if(payload[0] == 'R'){
-      uint16_t redLevel = (uint16_t) strtol((const char *) &payload[1], NULL, 10);
-      Serial.print("niveauRouge = ");
-      Serial.println(redLevel);
+      analogWrite(REDPIN, couleur);
 
-      analogWrite(REDPIN, redLevel);
-      delay(FADESPEED);
+      Serial.print("rouge = ");
+      Serial.println(couleur);
+    }
+    if(payload[0] == 'G'){
+      analogWrite(GREENPIN, couleur);
 
-    }else if(payload[0] == 'G'){
-      uint16_t vertLevel = (uint16_t) strtol((const char *) &payload[1], NULL, 10);
-      Serial.print("niveauVert = ");
-      Serial.println(vertLevel);
+      Serial.print("vert = ");
+      Serial.println(couleur);
+    }
+    if(payload[0] == 'B'){
 
-      analogWrite(GREENPIN, vertLevel);
-      delay(FADESPEED);
-    }else if(payload[0] == 'B'){
-      uint16_t blueLevel = (uint16_t) strtol((const char *) &payload[1], NULL, 10);
-      Serial.print("niveauBleu = ");
-      Serial.println(blueLevel);
+      Serial.print("bleu = ");
+      Serial.println(couleur);
+    }
+    if(payload[0] =='s'){
+      addData(payload[1],payload);
+    }
+    if(payload[0] == '#'){
+      if(payload[1] == '1'){
 
-      analogWrite(BLUEPIN, blueLevel);
-      delay(FADESPEED);
+        dataSmartEcl[0] = (requete("5258129e3a2c4e8144a8c755cfb8e97d","La rochelle","sunrise")+utcOffsetInSeconds);
+        dataSmartEcl[1] = (requete("5258129e3a2c4e8144a8c755cfb8e97d","La rochelle","sunset")+utcOffsetInSeconds);
+        dataSmartEcl[2] = (timeClient.getEpochTime());
+        if (checkTime(dataSmartEcl, 3)==0){
+          refresh = 10*MMINUTE;
+          mode="Active";
+          Serial.println("mode = active");
+        }else if(checkTime(dataSmartEcl, 3)>=0){
+          refresh = 5*MMINUTE;
+          mode="Process";
+          Serial.println("mode = process");
+        }
+      
+      }else{
+        mode="Desative";
+        Serial.println("mode = desactive");
+      }
     }
   }
 
@@ -164,54 +361,42 @@ void setup() {
 
   confOTA();
 
+   if(!SPIFFS.begin()) {
+  Serial.println("Erreur initialisation SPIFFS");
+  }
 
-  server.on("/",[](){
-  server.send_P(200, "text/html", webpage);
-  });
+
+
+  server.serveStatic("/", SPIFFS, "/index.html");
+  server.serveStatic("/js", SPIFFS, "/js");
+  server.serveStatic("/style", SPIFFS, "/style");
+  server.serveStatic("/save.csv", SPIFFS, "/save.csv");
+
+  timeClient.begin();
   server.begin();
   webSocket.begin();
   webSocket.onEvent(webSocketEvent); //Fonction de callback si l'on reçois un message du Webserveur
 
 }
 
-
         
 void loop() {
-  /*int r, g, b;
 
-      // fade from blue to violet
-  for (r = 0; r < 256; r++) { 
-    analogWrite(REDPIN, r);
-    delay(FADESPEED);
-  } 
-// fade from violet to red
-  for (b = 255; b > 0; b--) { 
-    analogWrite(BLUEPIN, b);
-    delay(FADESPEED);
-  } 
-  // fade from red to yellow
-  for (g = 0; g < 256; g++) { 
-    analogWrite(GREENPIN, g);
-    delay(FADESPEED);
-  } 
-  // fade from yellow to green
-  for (r = 255; r > 0; r--) { 
-    analogWrite(REDPIN, r);
-    delay(FADESPEED);
-  } 
-   // fade from green to teal
-  for (b = 0; b < 256; b++) { 
-    analogWrite(BLUEPIN, b);
-    delay(FADESPEED);
-  } 
-  // fade from teal to blue
-  for (g = 255; g > 0; g--) { 
-    analogWrite(GREENPIN, g);
-    delay(FADESPEED);
-  } */
-
-
-  
+  /*--------------------------------------------------------------------------------
+  Test iteratifs pour l'éclairage intelligent
+  --------------------------------------------------------------------------------*/
+  unsigned long currentLoopMillis = millis();
+  if(currentLoopMillis - previousLoopMillis >= refresh){
+    dataSmartEcl[2] = (timeClient.getEpochTime());
+    if(mode=="Active" or mode=="Process"){
+      displayColors(dataSmartEcl,3);
+    }
+    previousLoopMillis = millis();
+  }
+  /*--------------------------------------------------------------------------------
+  Les watchdogs!
+  --------------------------------------------------------------------------------*/
+  timeClient.update();
   ArduinoOTA.handle(); //Appel de la fonction qui gère OTA
   webSocket.loop(); //Appel de la fonction qui gère la communication avec le websocket
   server.handleClient(); //Appel de la fonctino qui gère la communication avec le serveur web
