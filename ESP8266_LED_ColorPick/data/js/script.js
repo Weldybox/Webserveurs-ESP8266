@@ -1,4 +1,4 @@
-var Socket;
+
 
 var on = true;
 
@@ -6,9 +6,20 @@ var red;
 var green;
 var blue;
 
-function init() {
-  Socket = new WebSocket('ws://' + window.location.hostname + ':82/');
-}
+
+var connection = new WebSocket('ws://' + location.hostname + ':81/',['arduino']);
+connection.onmessage = function(event){
+  console.log(event.data);
+  colorPicker.color.rgbString = event.data;
+};
+connection.onerror = function (error) {
+  console.log('WebSocket Error ', error);
+};
+connection.onclose = function () {
+  console.log('WebSocket connection closed');
+};
+  
+
 
 window.onload=function(){
 
@@ -28,18 +39,22 @@ function chooseSave(){
   Papa.parse('save.csv', {
     header: false,
     download: true,
+    delimiter: ";",
     dynamicTyping: true,
     complete: function(results) {
+      if(results.data[0][0] == null){
+        var number = 1;
+      }else{var number =0;}
       console.log(results);
-      for(var i=(((results.data[1]).length)-2);i>=0;i-=1){
-        console.log(((results.data[1]).length));
-        if(i > (((results.data[1]).length)-4)){
-          var id= 'carre' + String((i%4)+1);
-          var backgroundcolor = "rgb(" + (results.data[1])[i] + ")";
-          position[parseInt((id.substr(5,6)),10)] = i;
-          document.getElementById(id).style.background = backgroundcolor;
-        }
-      }
+      var count = 0;
+      results.data[number].forEach(element => {
+        var id= 'carre' + String(count+1);
+        console.log(element[count]);
+
+        var backgroundcolor = "rgb(" + element + ")";
+        document.getElementById(id).style.background = backgroundcolor;
+        count++;
+      }); 
     }
   });
 }
@@ -48,22 +63,23 @@ function setSaveColor(id){
   Papa.parse('save.csv', {
     header: false,
     download: true,
+    delimiter: ";",
     dynamicTyping: true,
     complete: function(results) {
-      console.log(position);
-      var tableau = results.data[1];
-      console.log(tableau[parseInt((id.substr(5,6)),10)-1]);
-      colorPicker.color.rgbString = "rgb("+ tableau[position[parseInt((id.substr(5,6)),10)]] +")";
-      console.log(index);
+      if(results.data[0][0] == null){
+        var number = 1;
+      }else{var number =0;}
+      var tableau = results.data[number];
+      colorPicker.color.rgbString = "rgb("+ tableau[id-1] +")";
     }
   });
 }
 
 function saving(){
 
-  Socket.send("sR"+red);
-  Socket.send("sG"+green);
-  Socket.send("sB"+blue);
+  connection.send("sR"+red);
+  connection.send("sG"+green);
+  connection.send("sB"+blue);
 
 }
 setInterval(function() {
@@ -71,24 +87,38 @@ setInterval(function() {
     /*var sauv = document.getElementById("sauv");
     sauv.style.backgroundColor = "rgb("+ red + "," + green + "," + blue + ")";*/
 
-    Socket.send("R"+red);
-    Socket.send("G"+green);
-    Socket.send("B"+blue);
+    connection.send("R"+red);
+    connection.send("G"+green);
+    connection.send("B"+blue);
 
   }
 }, 500);
 
 document.addEventListener('DOMContentLoaded', function () {
+  var SmartLight = document.querySelector('input[name=SmartLight]');
   var checkbox = document.querySelector('input[type="checkbox"]');
 
   checkbox.addEventListener('change', function () {
     if (checkbox.checked) {
       on = true;
     } else {
-      Socket.send("R0");
-      Socket.send("G0");
-      Socket.send("B0");
+      connection.send("R0");
+      connection.send("G0");
+      connection.send("B0");
       on = false;
+    }
+  });
+
+  SmartLight.addEventListener('change', function () {
+    if (SmartLight.checked) {
+      if(on){
+        document.getElementById("onOFf").checked = false;
+        on = false;
+      }
+      connection.send("#1");
+    } else {
+      connection.send("#0");
+      //on = true;
     }
   });
 });

@@ -3,6 +3,8 @@
 
 
 body {
+  display:flex;
+  justify-content: center;
   color: #fff;
   text-align: center;
   background-color: #171F30;
@@ -258,4 +260,25 @@ label #close {
   margin-bottom:5px;
   height: 22px;
   background: gray;
+}
+.side-addons{
+  /*background-color:grey;*/
+  align-items: center;
+  display: flex;
+  margin-left: 40px;  
+}
+.side-addons h4{
+  width:50px;
+  font-weight: 200;
+  line-height:16px;
+  font-size: 16px;
+  font-family: 'Nunito', sans-serif;
+  margin-right:15px;
+}
+.side-addons input:checked + .slider {
+  background-color: #ffdb3a;
+}
+
+.side-addons input:focus + .slider {
+  box-shadow: 0 0 1px #ffdb3a;
 }

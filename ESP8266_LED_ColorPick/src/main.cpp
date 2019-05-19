@@ -12,23 +12,44 @@
 #include <FS.h>
 #include <WiFiManagerByWeldy.h>
 #include <DNSServer.h>
-    // color swirl! connect an RGB LED to the PWM pins as indicated
-    // in the #defines
-    // public domain, enjoy!
+#include <ArduinoJson.h>
+#include <NTPClient.h>
+#include <ESP8266HTTPClient.h>
+#include <WiFiUdp.h>
+
+#define MSECOND  1000
+#define MMINUTE  60*MSECOND
+#define MHOUR    60*MMINUTE
+#define MDAY 24*MHOUR
+
+int dataSmartEcl[3];
+
+
+unsigned long utcOffsetInSeconds = 7200;
+/*--------------------------------------------------------------------------------
+Variables qui définissent le mode de fonctionement et le taux de rafraichissement
+--------------------------------------------------------------------------------*/
+unsigned long refresh;
+
+String mode = "Desative";
+
+//Variable qui stoque l'heure de coucher/lever de soleil et le timestamp
+
+uint8_t go = 0;
      
 #define REDPIN 13
 #define GREENPIN 12
 #define BLUEPIN 14
-     
-#define FADESPEED 5     // make this higher to slow down
 
 unsigned long previousLoopMillis = 0;
 
-int limiteTemperature = 0; //temperature limite établie du côté web serveur
+ESP8266WebServer server(80);
+WebSocketsServer webSocket = WebSocketsServer(81);
 
-ESP8266WebServer server;
-WebSocketsServer webSocket = WebSocketsServer(82);
-   
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "europe.pool.ntp.org",utcOffsetInSeconds);  
+
+HTTPClient http;
 
 /*--------------------------------------------------------------------------------
 Fonction de programmation OTA
@@ -57,27 +78,175 @@ void confOTA() {
   ArduinoOTA.begin();
 }
 
+/*--------------------------------------------------------------------------------
+Fonction qui retourne si l'on est plus proche du levé ou coucher de soleuil.
+--------------------------------------------------------------------------------*/
+String sunPosition(int dataSmartEcl[], uint8_t longueur){
+  
+  //Compare la différence entre le timestamp et les valeurs de sunrise et sunset
+  Serial.print(abs(dataSmartEcl[2] - dataSmartEcl[0]));
+  Serial.print(" > ");
+  Serial.println(abs(dataSmartEcl[2] - dataSmartEcl[1]));
 
+  if(abs(dataSmartEcl[2] - dataSmartEcl[0]) > abs(dataSmartEcl[2] - dataSmartEcl[1])){
+    //Serial.println("soir");
+    return "soir";
+  }else{
+    //Serial.println("soir");
+    return "matin";
+  }
+}
 
-bool checkSpace(){
+/*--------------------------------------------------------------------------------
+Fonction qui va retourner l'écart en seconde entre le jour et la nuit
+--------------------------------------------------------------------------------*/
+uint16_t checkTime(int dataSmartEcl[], uint8_t longueur){
+  uint8_t index;
+  //Selon si l'on est le matin ou le soir on définir l'index de comparaison 'sunset/sunrise'
+  if(sunPosition(dataSmartEcl, 3) == "matin"){index = 0;}
+  else{index=1;}
+
+  //On vérifie que l'heure du jour est au alentour de l'heure de sunset ou sunrise
+  int ecart =dataSmartEcl[2] - dataSmartEcl[index];
+  Serial.println(ecart);
+  if(ecart < 3600 && ecart > -3600){
+
+    //On retourne un resultat positive
+    int result = map(ecart, -3600, 3600, 0, 7200);
+    return result;
+  }else if(ecart < -3600){return 0;}
+  else if(ecart > 3600){return 7200;}
+  else{return 0;}
+
+}
+
+/*--------------------------------------------------------------------------------
+Fonction qui retourne les valeur de rouge vert et bleu en fonction de l'écart
+entre le jour et la nuit
+--------------------------------------------------------------------------------*/
+void displayColors(int dataSmartEcl[],uint8_t longueur){
+  /*--------------------------------------------------------------------------------
+  Selon l'a position du soleil nous cherchons à aller vers le blanc ou le orange/rouge
+  --------------------------------------------------------------------------------*/
+  Serial.println(sunPosition(dataSmartEcl, 3));
+  if(sunPosition(dataSmartEcl, 3) == "soir"){
+    Serial.println("soir");
+    uint8_t rouge = 255;
+    uint8_t vert = map(checkTime(dataSmartEcl, 3),0,7200,255,85);
+    uint8_t bleu = map(checkTime(dataSmartEcl, 3),0,7200,255,0);
+    analogWrite(REDPIN, rouge);
+    analogWrite(GREENPIN, vert);
+    analogWrite(BLUEPIN, bleu);
+    
+    String rgb = ("rgb("+String(rouge, DEC) +","+String(vert,DEC)+","+String(bleu,DEC)+")");
+    Serial.println(rgb);
+    webSocket.sendTXT(0,rgb);
+  }else{
+    Serial.println("journee");
+    uint8_t rouge = 255;
+    uint8_t vert = map(checkTime(dataSmartEcl, 3),0,7200,85,255);
+    uint8_t bleu = map(checkTime(dataSmartEcl, 3),0,7200,0,255);
+
+    analogWrite(REDPIN, rouge);
+    analogWrite(GREENPIN, vert);
+    analogWrite(BLUEPIN, bleu);
+
+    String rgb = ("rgb("+String(rouge, DEC) +","+String(vert,DEC)+","+String(bleu,DEC)+")");
+    Serial.println(rgb);
+    webSocket.sendTXT(0,rgb);
+  }
+
+}
+
+/*--------------------------------------------------------------------------------
+Fonction qui retourne l'heure de sunset ou de sunrise (en unix timestamp)
+--------------------------------------------------------------------------------*/
+int requete(String Apikey, String ville,String type){
+  String requeteHTTP =("http://api.openweathermap.org/data/2.5/weather?q=" + ville + "&APPID="
+  + Apikey); 
+  int timestamp;
+
+  http.begin(requeteHTTP);  //Specify request destination
+  int httpCode = http.GET();
+
+  if (httpCode > 0) { //Check the returning code
+ 
+  String payload = http.getString();   //Get the request response payload
+  //Serial.println(payload);      //Print the response payload
+
+  DynamicJsonDocument doc(765);
+  DeserializationError error = deserializeJson(doc, payload);
+  if(type == "sunrise"){
+    timestamp = doc["sys"]["sunrise"];
+  }else if(type == "sunset"){
+    timestamp = doc["sys"]["sunset"];
+  }
+  
+
+  }else{
+    timestamp = 0;
+  }
+  http.end();   //Close connection
+  return timestamp;
+}
+
+/*--------------------------------------------------------------------------------
+Fonction qui suprrime la première ligne que plus de 4 couleurs ont été enregistré
+--------------------------------------------------------------------------------*/
+void suprdata(String data[55], int tabIndex[5]){
+  File ftemp = SPIFFS.open("/save.csv", "w"); //On ouvre en mode écriture le fichier save.csv
+
+  for(uint8_t x=1;x<5;x++){ //Pour chaques couleurs sauvegardé
+    char msg[60];
+    int index = tabIndex[x]; //On récupère la position de chaque élément
+    String ligne = data[index]; //Puis on récupère la couleur voulue
+    sprintf(msg, "%s;",ligne.c_str()); //On concatène le point virgule avec le code couleur
+
+    ftemp.print(msg);
+  } 
+
+  ftemp.close();
+}
+
+/*--------------------------------------------------------------------------------
+Test s'il faut suprrimer la première couleur entrée.
+--------------------------------------------------------------------------------*/
+bool checkSpace(uint8_t count){
+  go += count;
+  if(go >= 5){
+    return 1;
+  }else{
+    return 0;
+  }
+}
+
+/*--------------------------------------------------------------------------------
+Supression de des couleurs enregistrer en trop.
+--------------------------------------------------------------------------------*/
+void suprSelect(){
   File file = SPIFFS.open("/save.csv", "r");
  
-  Serial.println("File Content:");
-  uint8_t count = 0;
-  String save[] = {};
-  /*while(file.available()){
-    String part = file.readStringUntil(';');
-    Serial.println(part);
-    count++;
-    save[count] = part;
-    if(count >= 4){
-      Serial.println(save[0]);
-    }
-  }*/
-  file.close();
+  //Tableau à sauvegarder dans le fichier temporaire
+  String save[55] = {};
+  int index[5] = {};
+  int longueur=1;
 
-  return 1;
+
+  for(uint8_t i=0;i<5;i++){ //On répète la boucle 5 fois pour chaque couleur
+    String part = file.readStringUntil(';'); //On lie la ligne jusqu'au changement de couleur
+    if(longueur > 1){ //On ne prend pas en compte la première
+      save[longueur] = part; //On ajoute au tableau save la couleur
+      index[i] = longueur; //On ajoute au tableau index l'index de la couleur
+    }
+
+    longueur += part.length();
+  }
+  go --;
+  file.close(); 
+
+  suprdata(save, index);
 }
+
 /*--------------------------------------------------------------------------------
 Fonction qui traite les requêtes websocket arrivant depuis le serveur web.
 --------------------------------------------------------------------------------*/
@@ -86,27 +255,36 @@ void addData(uint16_t couleur, uint8_t * couleurSave){
   File f = SPIFFS.open("/save.csv", "a+");
   if (!f) {
     Serial.println("erreur ouverture fichier!");
-  }else if(checkSpace()){
+  }else{
     if(couleur == 'R'){
         char buffred[16];
         sprintf(buffred,"%d,",save);
         Serial.println(buffred);
         f.print(buffred);
-    }if(couleur == 'G'){
+    }else if(couleur == 'G'){
         char buffgreen[16];
         sprintf(buffgreen,"%d,",save);
         Serial.println(buffgreen);
         f.print(buffgreen);
         
-    }if(couleur == 'B'){
+    }else if(couleur == 'B'){
         char buffblue[16];
         sprintf(buffblue,"%d;",save);
         Serial.println(buffblue);
         f.print(buffblue);
+
+        //On regarde si le nombre de couleur sauvegardé n'exède pas 5
+        if(checkSpace(1)){
+          Serial.println("true");
+
+          //Si c'est le cas on libère de l'espace dans la mémoire
+          suprSelect();
+        }
     }
     f.close();
   }
 }
+
 /*--------------------------------------------------------------------------------
 Fonction qui traite les requêtes websocket arrivant depuis le serveur web.
 --------------------------------------------------------------------------------*/
@@ -115,27 +293,44 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
     uint16_t couleur = (uint16_t) strtol((const char *) &payload[1], NULL, 10);
     if(payload[0] == 'R'){
       analogWrite(REDPIN, couleur);
-      delay(FADESPEED);
 
       Serial.print("rouge = ");
       Serial.println(couleur);
     }
     if(payload[0] == 'G'){
       analogWrite(GREENPIN, couleur);
-      delay(FADESPEED);
 
       Serial.print("vert = ");
       Serial.println(couleur);
     }
     if(payload[0] == 'B'){
-      analogWrite(BLUEPIN, couleur);
-      delay(FADESPEED);
 
       Serial.print("bleu = ");
       Serial.println(couleur);
     }
     if(payload[0] =='s'){
       addData(payload[1],payload);
+    }
+    if(payload[0] == '#'){
+      if(payload[1] == '1'){
+
+        dataSmartEcl[0] = (requete("5258129e3a2c4e8144a8c755cfb8e97d","La rochelle","sunrise")+utcOffsetInSeconds);
+        dataSmartEcl[1] = (requete("5258129e3a2c4e8144a8c755cfb8e97d","La rochelle","sunset")+utcOffsetInSeconds);
+        dataSmartEcl[2] = (timeClient.getEpochTime());
+        if (checkTime(dataSmartEcl, 3)==0){
+          refresh = 10*MMINUTE;
+          mode="Active";
+          Serial.println("mode = active");
+        }else if(checkTime(dataSmartEcl, 3)>=0){
+          refresh = 5*MMINUTE;
+          mode="Process";
+          Serial.println("mode = process");
+        }
+      
+      }else{
+        mode="Desative";
+        Serial.println("mode = desactive");
+      }
     }
   }
 
@@ -177,15 +372,31 @@ void setup() {
   server.serveStatic("/style", SPIFFS, "/style");
   server.serveStatic("/save.csv", SPIFFS, "/save.csv");
 
+  timeClient.begin();
   server.begin();
   webSocket.begin();
   webSocket.onEvent(webSocketEvent); //Fonction de callback si l'on reçois un message du Webserveur
 
 }
 
-
         
 void loop() {
+
+  /*--------------------------------------------------------------------------------
+  Test iteratifs pour l'éclairage intelligent
+  --------------------------------------------------------------------------------*/
+  unsigned long currentLoopMillis = millis();
+  if(currentLoopMillis - previousLoopMillis >= refresh){
+    dataSmartEcl[2] = (timeClient.getEpochTime());
+    if(mode=="Active" or mode=="Process"){
+      displayColors(dataSmartEcl,3);
+    }
+    previousLoopMillis = millis();
+  }
+  /*--------------------------------------------------------------------------------
+  Les watchdogs!
+  --------------------------------------------------------------------------------*/
+  timeClient.update();
   ArduinoOTA.handle(); //Appel de la fonction qui gère OTA
   webSocket.loop(); //Appel de la fonction qui gère la communication avec le websocket
   server.handleClient(); //Appel de la fonctino qui gère la communication avec le serveur web
