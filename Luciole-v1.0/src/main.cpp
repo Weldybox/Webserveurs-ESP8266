@@ -17,32 +17,41 @@
 #include <ESP8266HTTPClient.h>
 #include <WiFiUdp.h>
 
+/*--------------------------------------------------------------------------------
+Variables qui peremttent de manipuler des constantes de temps
+--------------------------------------------------------------------------------*/
 #define MSECOND  1000
 #define MMINUTE  60*MSECOND
 #define MHOUR    60*MMINUTE
 #define MDAY 24*MHOUR
 
-int dataSmartEcl[3];
+/*--------------------------------------------------------------------------------
+Variable qui stock les numéros de broche de chaque MOSFET.
+--------------------------------------------------------------------------------*/
+#define REDPIN 13
+#define GREENPIN 12
+#define BLUEPIN 14
+
+int dataSmartEcl[3]; //Tableau qui va contenir les 3 temps unix nécessaire au traitement.
 
 
-unsigned long utcOffsetInSeconds = 7200;
+unsigned long utcOffsetInSeconds = 7200; 
+
 /*--------------------------------------------------------------------------------
 Variables qui définissent le mode de fonctionement et le taux de rafraichissement
 --------------------------------------------------------------------------------*/
 unsigned long refresh;
 
-String mode = "Desative";
+String mode = "Desative"; //Le mode de fonctionement smart des LEDs, de base désactivé
 
-//Variable qui stoque l'heure de coucher/lever de soleil et le timestamp
-
-uint8_t go = 0;
+uint8_t go = 0; //Variable qui se devient vrai lorsque l'on doit supprimer une valeure en mémoire de l'ESP.
      
-#define REDPIN 13
-#define GREENPIN 12
-#define BLUEPIN 14
 
-unsigned long previousLoopMillis = 0;
+unsigned long previousLoopMillis = 0; //Variable qui permet d'actualiser la couleur des LEDs toute les X secondes en mode Smart Eclairage
 
+/*--------------------------------------------------------------------------------
+Définition des objets nécessaire dans la suite du programme.
+--------------------------------------------------------------------------------*/
 ESP8266WebServer server(80);
 WebSocketsServer webSocket = WebSocketsServer(81);
 
@@ -84,16 +93,11 @@ Fonction qui retourne si l'on est plus proche du levé ou coucher de soleuil.
 String sunPosition(int dataSmartEcl[], uint8_t longueur){
   
   //Compare la différence entre le timestamp et les valeurs de sunrise et sunset
-  Serial.print(abs(dataSmartEcl[2] - dataSmartEcl[0]));
-  Serial.print(" > ");
-  Serial.println(abs(dataSmartEcl[2] - dataSmartEcl[1]));
-
+  //Si la différence de seconde entre l'heure actuelle et l'heure de levé de soleil est supérieur à la différence pour le coucher de soleil
   if(abs(dataSmartEcl[2] - dataSmartEcl[0]) > abs(dataSmartEcl[2] - dataSmartEcl[1])){
-    //Serial.println("soir");
-    return "soir";
+    return "soir"; //On considère qu'on est dans la période "soir"
   }else{
-    //Serial.println("soir");
-    return "matin";
+    return "matin"; //Sinon on considère qu'on est dans la période matin
   }
 }
 
@@ -107,16 +111,15 @@ uint16_t checkTime(int dataSmartEcl[], uint8_t longueur){
   else{index=1;}
 
   //On vérifie que l'heure du jour est au alentour de l'heure de sunset ou sunrise
-  int ecart =dataSmartEcl[2] - dataSmartEcl[index];
+  int ecart = dataSmartEcl[2] - dataSmartEcl[index]; //L'écart c'est la différence entre l'heur actuelle et l'heure de coucher/levé de soleil
   Serial.println(ecart);
-  if(ecart < 3600 && ecart > -3600){
+  if(ecart < 0 && ecart > -3600){ //Si c'ette écart se trouve dans la tranche de transition des LEDs
 
-    //On retourne un resultat positive
-    int result = map(ecart, -3600, 3600, 0, 7200);
+    int result = map(ecart, -3600, 0, 0, 3600); //On retrourne un résultat positif
     return result;
-  }else if(ecart < -3600){return 0;}
-  else if(ecart > 3600){return 7200;}
-  else{return 0;}
+  }else if(ecart < -3600){return 0;} //Si l'écart est inférieur à la valeur de tranche basse on retourne 0
+  else if(ecart > 0){return 3600;} //Sinon si l'écart est supérieur à la valeure de tranche haut on retourne 3600
+  else{return 0;} //Sinon on retourne 0
 
 }
 
@@ -129,28 +132,37 @@ void displayColors(int dataSmartEcl[],uint8_t longueur){
   Selon l'a position du soleil nous cherchons à aller vers le blanc ou le orange/rouge
   --------------------------------------------------------------------------------*/
   Serial.println(sunPosition(dataSmartEcl, 3));
-  if(sunPosition(dataSmartEcl, 3) == "soir"){
+  if(sunPosition(dataSmartEcl, 3) == "soir"){ //S'il on se trouve dans la tranche soir
     Serial.println("soir");
+
+    //On map les valeurs de vert et bleu de 255 (couleur blanche) au valeurs attendue en sortie.
     uint8_t rouge = 255;
-    uint8_t vert = map(checkTime(dataSmartEcl, 3),0,7200,255,85);
-    uint8_t bleu = map(checkTime(dataSmartEcl, 3),0,7200,255,0);
+    uint8_t vert = map(checkTime(dataSmartEcl, 3),0,3600,255,85);
+    uint8_t bleu = map(checkTime(dataSmartEcl, 3),0,3600,255,0);
+    //Puis on set le bandeau de LED tel quel.
     analogWrite(REDPIN, rouge);
     analogWrite(GREENPIN, vert);
     analogWrite(BLUEPIN, bleu);
     
+    //On envoie également cette valeure sur le websocket pour avoir un retour du côté client.
     String rgb = ("rgb("+String(rouge, DEC) +","+String(vert,DEC)+","+String(bleu,DEC)+")");
     Serial.println(rgb);
     webSocket.sendTXT(0,rgb);
-  }else{
-    Serial.println("journee");
-    uint8_t rouge = 255;
-    uint8_t vert = map(checkTime(dataSmartEcl, 3),0,7200,85,255);
-    uint8_t bleu = map(checkTime(dataSmartEcl, 3),0,7200,0,255);
 
+  }else{
+    Serial.println("journee"); //Dans le cas contraire on est dans la seconde partie de tranche
+
+    //On map les valeus de vert et bleu allant des valeurs de couleurs chaudes à 255 (couleurs blanche)
+    uint8_t rouge = 255;
+    uint8_t vert = map(checkTime(dataSmartEcl, 3),0,3600,85,255);
+    uint8_t bleu = map(checkTime(dataSmartEcl, 3),0,3600,0,255);
+
+    //Puis on set le bandeau de LED te quel.
     analogWrite(REDPIN, rouge);
     analogWrite(GREENPIN, vert);
     analogWrite(BLUEPIN, bleu);
 
+    //ON envoie également cette valeure sur le websocket pour avoir un retour du côté client.
     String rgb = ("rgb("+String(rouge, DEC) +","+String(vert,DEC)+","+String(bleu,DEC)+")");
     Serial.println(rgb);
     webSocket.sendTXT(0,rgb);
@@ -317,14 +329,17 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
         dataSmartEcl[0] = (requete("5258129e3a2c4e8144a8c755cfb8e97d","La rochelle","sunrise")+utcOffsetInSeconds);
         dataSmartEcl[1] = (requete("5258129e3a2c4e8144a8c755cfb8e97d","La rochelle","sunset")+utcOffsetInSeconds);
         dataSmartEcl[2] = (timeClient.getEpochTime());
+
         if (checkTime(dataSmartEcl, 3)==0){
           refresh = 10*MMINUTE;
           mode="Active";
           Serial.println("mode = active");
+          displayColors(dataSmartEcl,3);
         }else if(checkTime(dataSmartEcl, 3)>=0){
           refresh = 5*MMINUTE;
           mode="Process";
           Serial.println("mode = process");
+          displayColors(dataSmartEcl,3);
         }
       
       }else{
