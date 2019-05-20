@@ -1,11 +1,8 @@
-
-
 var on = true;
 
 var red;
 var green;
 var blue;
-
 
 var connection = new WebSocket('ws://' + location.hostname + ':81/',['arduino']);
 connection.onmessage = function(event){
@@ -19,10 +16,7 @@ connection.onclose = function () {
   console.log('WebSocket connection closed');
 };
   
-
-
 window.onload=function(){
-
   var bouton = document.getElementById('btnMenu');
   var nav = document.getElementById('nav');
   bouton.onclick = function(e){
@@ -139,5 +133,4 @@ var colorPicker = new iro.ColorPicker(".colorPicker", {
         // if((color.rgbString).split(',')[2]) ==
     var longueur =  ((color.rgbString).split(',')[2]).length;
     blue = (((color.rgbString).split(',')[2]).substring(0,longueur-1));
-
 });
