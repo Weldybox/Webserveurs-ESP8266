@@ -44,8 +44,8 @@ unsigned long refresh;
 
 String mode = "Desative"; //Le mode de fonctionement smart des LEDs, de base désactivé
 
-uint8_t go = 0; //Variable qui se devient vrai lorsque l'on doit supprimer une valeure en mémoire de l'ESP.
-     
+uint8_t go1 = 0; //Variable qui se devient vrai lorsque l'on doit supprimer une valeure en mémoire de l'ESP.
+uint8_t go2 = 0;   
 
 unsigned long previousLoopMillis = 0; //Variable qui permet d'actualiser la couleur des LEDs toute les X secondes en mode Smart Eclairage
 
@@ -205,16 +205,17 @@ int requete(String Apikey, String ville,String type){
 /*--------------------------------------------------------------------------------
 Fonction qui suprrime la première ligne que plus de 4 couleurs ont été enregistré
 --------------------------------------------------------------------------------*/
-void suprdata(String data[55], int tabIndex[5]){
-  File ftemp = SPIFFS.open("/save.csv", "w"); //On ouvre en mode écriture le fichier save.csv
+void suprdata(String data[55], int tabIndex[5], String nomFichier, int limiteSave,int beginSave){
+  File ftemp = SPIFFS.open(nomFichier, "w"); //On ouvre en mode écriture le fichier save.csv
 
-  for(uint8_t x=1;x<5;x++){ //Pour chaques couleurs sauvegardé
+  for(uint8_t x=beginSave;x<limiteSave;x++){ //Pour chaques couleurs sauvegardé
     char msg[60];
     int index = tabIndex[x]; //On récupère la position de chaque élément
     String ligne = data[index]; //Puis on récupère la couleur voulue
     sprintf(msg, "%s;",ligne.c_str()); //On concatène le point virgule avec le code couleur
 
     ftemp.print(msg);
+    Serial.println(msg);
   } 
 
   ftemp.close();
@@ -223,20 +224,30 @@ void suprdata(String data[55], int tabIndex[5]){
 /*--------------------------------------------------------------------------------
 Test s'il faut suprrimer la première couleur entrée.
 --------------------------------------------------------------------------------*/
-bool checkSpace(uint8_t count){
-  go += count;
-  if(go >= 5){
-    return 1;
+bool checkSpace(uint8_t count, uint8_t longueur, String go){
+  if(go == "go1"){
+    Serial.println("longeur = 5");
+    go1 += count;
+    if(go1 >= longueur){
+      return 1;
+    }else{
+      return 0;
+    }
   }else{
-    return 0;
+    go2 += count;
+    if(go2 >= longueur){
+      return 1;
+    }else{
+      return 0;
+    }
   }
 }
 
 /*--------------------------------------------------------------------------------
 Supression de des couleurs enregistrer en trop.
 --------------------------------------------------------------------------------*/
-void suprSelect(){
-  File file = SPIFFS.open("/save.csv", "r");
+void suprSelect(String nom, String nomFichier, uint8_t nombre, uint8_t Nsuppr){
+  File file = SPIFFS.open(nomFichier, "r");
  
   //Tableau à sauvegarder dans le fichier temporaire
   String save[55] = {};
@@ -244,27 +255,35 @@ void suprSelect(){
   int longueur=1;
 
 
-  for(uint8_t i=0;i<5;i++){ //On répète la boucle 5 fois pour chaque couleur
+  for(uint8_t i=0;i<nombre;i++){ //On répète la boucle 5 fois pour chaque couleur
     String part = file.readStringUntil(';'); //On lie la ligne jusqu'au changement de couleur
-    if(longueur > 1){ //On ne prend pas en compte la première
+    if(longueur > Nsuppr){ //On ne prend pas en compte la première
       save[longueur] = part; //On ajoute au tableau save la couleur
       index[i] = longueur; //On ajoute au tableau index l'index de la couleur
     }
 
     longueur += part.length();
   }
-  go --;
-  file.close(); 
+  if(nom == "n0"){
+    go1 --;
 
-  suprdata(save, index);
+    file.close(); 
+    suprdata(save, index, "/save.csv",5,1);
+  }else{
+    go2 -=2;
+    //Serial.println(go2);
+
+    file.close(); 
+    suprdata(save, index, "/save1.csv",4,2);
+  }
 }
 
 /*--------------------------------------------------------------------------------
 Fonction qui traite les requêtes websocket arrivant depuis le serveur web.
 --------------------------------------------------------------------------------*/
-void addData(uint16_t couleur, uint8_t * couleurSave){
-  uint16_t save = (uint16_t) strtol((const char *) &couleurSave[2], NULL, 10);
-  File f = SPIFFS.open("/save.csv", "a+");
+void addData(uint16_t couleur, uint8_t * couleurSave, String nomFichier, uint8_t index){
+  uint16_t save = (uint16_t) strtol((const char *) &couleurSave[index], NULL, 10);
+  File f = SPIFFS.open(nomFichier, "a+");
   if (!f) {
     Serial.println("erreur ouverture fichier!");
   }else{
@@ -286,11 +305,17 @@ void addData(uint16_t couleur, uint8_t * couleurSave){
         f.print(buffblue);
 
         //On regarde si le nombre de couleur sauvegardé n'exède pas 5
-        if(checkSpace(1)){
-          Serial.println("true");
-
+       //Serial.println(index);
+        if(index == 3 && checkSpace(1,4,"go2")){
+          //Serial.println("true");
+          Serial.println("Suppression save1");
+          suprSelect("n1","/save1.csv",5,12);
           //Si c'est le cas on libère de l'espace dans la mémoire
-          suprSelect();
+
+        }else if(index == 2 && checkSpace(1,5,"go1")){
+          Serial.println("Suppression save");
+          suprSelect("n0","/save.csv",5,1);
+
         }
     }
     f.close();
@@ -321,7 +346,11 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
       Serial.println(couleur);
     }
     if(payload[0] =='s'){
-      addData(payload[1],payload);
+      if(payload[1] == 'T'){
+        addData(payload[2],payload,"/save1.csv",3);
+      }else{
+        addData(payload[1],payload,"/save.csv",2);
+      }
     }
     if(payload[0] == '#'){
       if(payload[1] == '1'){
