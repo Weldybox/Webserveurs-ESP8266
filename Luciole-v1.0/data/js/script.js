@@ -1,8 +1,13 @@
+
+
 var on = true;
 
 var red;
 var green;
 var blue;
+
+var rangeDefine;
+var pickColor = 0;
 
 var connection = new WebSocket('ws://' + location.hostname + ':81/',['arduino']);
 connection.onmessage = function(event){
@@ -16,7 +21,13 @@ connection.onclose = function () {
   console.log('WebSocket connection closed');
 };
   
+function chooseColorRange(i){
+  console.log("fonction de changement de background color");
+  pickColor = i;
+}
+
 window.onload=function(){
+
   var bouton = document.getElementById('btnMenu');
   var nav = document.getElementById('nav');
   bouton.onclick = function(e){
@@ -91,7 +102,34 @@ setInterval(function() {
 document.addEventListener('DOMContentLoaded', function () {
   var SmartLight = document.querySelector('input[name=SmartLight]');
   var checkbox = document.querySelector('input[type="checkbox"]');
+  var Reglage = document.querySelector('input[name=menu-open]');
 
+
+  Reglage.addEventListener('change', function () {
+    if(Reglage.checked){
+      console.log("yey");
+      rangeDefine = true;
+    }else{
+      rangeDefine = false;
+      pickColor = 0;
+
+      var couleurs = ["sTR","sTG","sTB"];
+
+      for(var i=0;i<3;i++){
+        console.log(couleurs[i] + ((((((document.getElementById("sous-menu2").style.background).split("("))[1]).split(")"))[0]).split(","))[i]);
+
+        connection.send(couleurs[i] + ((((((document.getElementById("sous-menu1").style.background).split("("))[1]).split(")"))[0]).split(","))[i]);
+
+        /*console.log(couleurs[i]);
+        console.log(((((((document.getElementById("sous-menu1").style.background).split("("))[1]).split(")"))[0]).split(","))[i]);
+        console.log(couleurs[i]);
+        console.log(((((((document.getElementById("sous-menu2").style.background).split("("))[1]).split(")"))[0]).split(","))[i]);*/
+      }
+      for(var i=0;i<3;i++){
+      connection.send(couleurs[i] + ((((((document.getElementById("sous-menu2").style.background).split("("))[1]).split(")"))[0]).split(","))[i]);
+      }
+    }
+  });
   checkbox.addEventListener('change', function () {
     if (checkbox.checked) {
       on = true;
@@ -130,7 +168,11 @@ var colorPicker = new iro.ColorPicker(".colorPicker", {
 
     red = ((color.rgbString).split(',')[0]).substring(4, 7);
     green = (color.rgbString).split(',')[1];
-        // if((color.rgbString).split(',')[2]) ==
     var longueur =  ((color.rgbString).split(',')[2]).length;
     blue = (((color.rgbString).split(',')[2]).substring(0,longueur-1));
+
+    if(rangeDefine && pickColor){
+      var backgroundcolor = "rgb("+red+","+green+","+blue+")";
+      document.getElementById("sous-menu"+pickColor).style.background = backgroundcolor;
+    }
 });
