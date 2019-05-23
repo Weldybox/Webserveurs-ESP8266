@@ -9,6 +9,10 @@ var blue;
 var rangeDefine;
 var pickColor = 0;
 
+
+/*---------------------------------------------------------
+Différents objets et fonction relatifs au Websocket
+---------------------------------------------------------*/
 var connection = new WebSocket('ws://' + location.hostname + ':81/',['arduino']);
 connection.onmessage = function(event){
   console.log(event.data);
@@ -26,6 +30,7 @@ function chooseColorRange(i){
   pickColor = i;
 }
 
+
 window.onload=function(){
 
   var bouton = document.getElementById('btnMenu');
@@ -39,31 +44,61 @@ window.onload=function(){
   };
 };
 
+
+/*---------------------------------------------------------
+Fonction montre les couleurs sauvegardé par l'utilisateur
+---------------------------------------------------------*/
+function displaySave(results){
+  if(results.data[0][0] == null){
+    var number = 1;
+  }else{var number =0;}
+  console.log(results);
+  var count = 0;
+  results.data[number].forEach(element => {
+    var id= 'carre' + String(count+1);
+    console.log(element[count]);
+
+    var backgroundcolor = "rgb(" + element + ")";
+    document.getElementById(id).style.background = backgroundcolor;
+    count++;
+  });
+}
+
+/*---------------------------------------------------------
+Fonction qui permet d'utiliser le contenue d'un fichier CSV.
+Par défaut il utilise le fichier saveS.csv
+---------------------------------------------------------*/
 var position = [];
-function chooseSave(){
-  Papa.parse('save.csv', {
+function chooseSave(filename){
+  Papa.parse(filename, {
     header: false,
     download: true,
     delimiter: ";",
     dynamicTyping: true,
     complete: function(results) {
-      if(results.data[0][0] == null){
-        var number = 1;
-      }else{var number =0;}
-      console.log(results);
-      var count = 0;
-      results.data[number].forEach(element => {
-        var id= 'carre' + String(count+1);
-        console.log(element[count]);
+      if(filename == "save.csv"){
+      displaySave(results); 
+      }else{
+        console.log(results);
 
-        var backgroundcolor = "rgb(" + element + ")";
-        document.getElementById(id).style.background = backgroundcolor;
-        count++;
-      }); 
+        var count = 0;
+        results.data[0].forEach(element => {
+          var backgroundcolor = "rgb(" + element + ")";
+          //console.log();
+          document.getElementById("sous-menu"+((count+1).toString(10))).style.background = backgroundcolor;
+
+          //document.getElementById(id).style.background = backgroundcolor;
+          count++;
+        });
+      }
     }
   });
 }
 
+/*---------------------------------------------------------
+Fonction qui selection dans le cercle de couleur la couleur
+choisie par l'utilisateur dans les sauvegardes.
+---------------------------------------------------------*/
 function setSaveColor(id){
   Papa.parse('save.csv', {
     header: false,
@@ -80,17 +115,16 @@ function setSaveColor(id){
   });
 }
 
-function saving(){
 
+function saving(){
   connection.send("sR"+red);
   connection.send("sG"+green);
   connection.send("sB"+blue);
 
 }
+
 setInterval(function() {
   if(on){
-    /*var sauv = document.getElementById("sauv");
-    sauv.style.backgroundColor = "rgb("+ red + "," + green + "," + blue + ")";*/
 
     connection.send("R"+red);
     connection.send("G"+green);
@@ -99,15 +133,18 @@ setInterval(function() {
   }
 }, 500);
 
+//Fonction qui permet de gérer les interactions de l'utilisateur sur la page.
 document.addEventListener('DOMContentLoaded', function () {
   var SmartLight = document.querySelector('input[name=SmartLight]');
   var checkbox = document.querySelector('input[type="checkbox"]');
   var Reglage = document.querySelector('input[name=menu-open]');
 
 
+  //Fonction qui detecte quand on veut régler la plage de couleur de l'éclairage intelligent
   Reglage.addEventListener('change', function () {
     if(Reglage.checked){
       console.log("yey");
+      chooseSave("saveS.csv");
       rangeDefine = true;
     }else{
       rangeDefine = false;
@@ -120,16 +157,14 @@ document.addEventListener('DOMContentLoaded', function () {
 
         connection.send(couleurs[i] + ((((((document.getElementById("sous-menu1").style.background).split("("))[1]).split(")"))[0]).split(","))[i]);
 
-        /*console.log(couleurs[i]);
-        console.log(((((((document.getElementById("sous-menu1").style.background).split("("))[1]).split(")"))[0]).split(","))[i]);
-        console.log(couleurs[i]);
-        console.log(((((((document.getElementById("sous-menu2").style.background).split("("))[1]).split(")"))[0]).split(","))[i]);*/
       }
       for(var i=0;i<3;i++){
       connection.send(couleurs[i] + ((((((document.getElementById("sous-menu2").style.background).split("("))[1]).split(")"))[0]).split(","))[i]);
       }
     }
   });
+
+  //Fonction qui detecte lorsque l'on affiche les couleurs sauvegardées.
   checkbox.addEventListener('change', function () {
     if (checkbox.checked) {
       on = true;
@@ -141,6 +176,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   });
 
+  //Fonction qui detecte qu'on l'on active ou non l'éclairage intelligent.
   SmartLight.addEventListener('change', function () {
     if (SmartLight.checked) {
       if(on){
