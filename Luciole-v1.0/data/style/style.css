@@ -268,7 +268,7 @@ label #close {
 
   align-items: center;
   display: flex;
-  margin-right: 40px;
+  margin-right: 56px;
 }
 .side-addons .switch{
   display: flex;
@@ -277,12 +277,12 @@ label #close {
   margin-bottom: 15px;
 }
 .side-addons h4{
-  width:50px;
+  text-align: left;
+  width:40px;
   font-weight: 200;
   line-height:16px;
   font-size: 16px;
   font-family: 'Nunito', sans-serif;
-  margin-right:15px;
 }
 .side-addons input:checked + .slider {
   background-color: #ffdb3a;
@@ -300,6 +300,7 @@ a {
 
 
 .menu {
+
   /*background-color: red;*/
   display: flex;
   width: 80px;
