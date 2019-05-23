@@ -33,6 +33,7 @@ Variable qui stock les numéros de broche de chaque MOSFET.
 #define BLUEPIN 14
 
 int dataSmartEcl[3]; //Tableau qui va contenir les 3 temps unix nécessaire au traitement.
+String couleurComp[2];
 
 
 unsigned long utcOffsetInSeconds = 7200; 
@@ -87,6 +88,24 @@ void confOTA() {
   ArduinoOTA.begin();
 }
 
+String split(String data, char separator, int index)
+{
+  int found = 0;
+  int strIndex[] = {0, -1};
+  int maxIndex = data.length()-1;
+
+  for(int i=0; i<=maxIndex && found<=index; i++){
+    if(data.charAt(i)==separator || i==maxIndex){
+        found++;
+        strIndex[0] = strIndex[1]+1;
+        strIndex[1] = (i == maxIndex) ? i+1 : i;
+    }
+  }
+
+  return found>index ? data.substring(strIndex[0], strIndex[1]) : "";
+}
+
+
 /*--------------------------------------------------------------------------------
 Fonction qui retourne si l'on est plus proche du levé ou coucher de soleuil.
 --------------------------------------------------------------------------------*/
@@ -136,9 +155,9 @@ void displayColors(int dataSmartEcl[],uint8_t longueur){
     Serial.println("soir");
 
     //On map les valeurs de vert et bleu de 255 (couleur blanche) au valeurs attendue en sortie.
-    uint8_t rouge = 255;
-    uint8_t vert = map(checkTime(dataSmartEcl, 3),0,3600,255,85);
-    uint8_t bleu = map(checkTime(dataSmartEcl, 3),0,3600,255,0);
+    uint8_t rouge = map(checkTime(dataSmartEcl, 3),0,3600,(split(couleurComp[1],',',0)).toInt(),(split(couleurComp[0],',',0)).toInt());
+    uint8_t vert = map(checkTime(dataSmartEcl, 3),0,3600,(split(couleurComp[1],',',1)).toInt(),(split(couleurComp[0],',',1)).toInt());
+    uint8_t bleu = map(checkTime(dataSmartEcl, 3),0,3600,(split(couleurComp[1],',',2)).toInt(),(split(couleurComp[0],',',2)).toInt());
     //Puis on set le bandeau de LED tel quel.
     analogWrite(REDPIN, rouge);
     analogWrite(GREENPIN, vert);
@@ -153,9 +172,9 @@ void displayColors(int dataSmartEcl[],uint8_t longueur){
     Serial.println("journee"); //Dans le cas contraire on est dans la seconde partie de tranche
 
     //On map les valeus de vert et bleu allant des valeurs de couleurs chaudes à 255 (couleurs blanche)
-    uint8_t rouge = 255;
-    uint8_t vert = map(checkTime(dataSmartEcl, 3),0,3600,85,255);
-    uint8_t bleu = map(checkTime(dataSmartEcl, 3),0,3600,0,255);
+    uint8_t rouge = map(checkTime(dataSmartEcl, 3),0,3600,(split(couleurComp[0],',',0)).toInt(),(split(couleurComp[1],',',0)).toInt());
+    uint8_t vert = map(checkTime(dataSmartEcl, 3),0,3600,(split(couleurComp[0],',',1)).toInt(),(split(couleurComp[1],',',1)).toInt());
+    uint8_t bleu = map(checkTime(dataSmartEcl, 3),0,3600,(split(couleurComp[0],',',2)).toInt(),(split(couleurComp[1],',',2)).toInt());
 
     //Puis on set le bandeau de LED te quel.
     analogWrite(REDPIN, rouge);
@@ -207,17 +226,22 @@ Fonction qui suprrime la première ligne que plus de 4 couleurs ont été enregi
 --------------------------------------------------------------------------------*/
 void suprdata(String data[55], int tabIndex[5], String nomFichier, int limiteSave,int beginSave){
   File ftemp = SPIFFS.open(nomFichier, "w"); //On ouvre en mode écriture le fichier save.csv
-
+  
   for(uint8_t x=beginSave;x<limiteSave;x++){ //Pour chaques couleurs sauvegardé
     char msg[60];
     int index = tabIndex[x]; //On récupère la position de chaque élément
     String ligne = data[index]; //Puis on récupère la couleur voulue
     sprintf(msg, "%s;",ligne.c_str()); //On concatène le point virgule avec le code couleur
 
-    ftemp.print(msg);
-    Serial.println(msg);
-  } 
+    if (nomFichier == "/saveS.csv"){
+      Serial.println(msg);
+      couleurComp[x-beginSave] = msg;
 
+    }
+    ftemp.print(msg);
+
+    
+  }
   ftemp.close();
 }
 
@@ -234,6 +258,7 @@ bool checkSpace(uint8_t count, uint8_t longueur, String go){
       return 0;
     }
   }else{
+    Serial.println("test");
     go2 += count;
     if(go2 >= longueur){
       return 1;
@@ -274,7 +299,7 @@ void suprSelect(String nom, String nomFichier, uint8_t nombre, uint8_t Nsuppr){
     //Serial.println(go2);
 
     file.close(); 
-    suprdata(save, index, "/save1.csv",4,2);
+    suprdata(save, index, "/saveS.csv",4,2);
   }
 }
 
@@ -309,7 +334,7 @@ void addData(uint16_t couleur, uint8_t * couleurSave, String nomFichier, uint8_t
         if(index == 3 && checkSpace(1,4,"go2")){
           //Serial.println("true");
           Serial.println("Suppression save1");
-          suprSelect("n1","/save1.csv",5,12);
+          suprSelect("n1","/saveS.csv",5,12);
           //Si c'est le cas on libère de l'espace dans la mémoire
 
         }else if(index == 2 && checkSpace(1,5,"go1")){
@@ -347,7 +372,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length
     }
     if(payload[0] =='s'){
       if(payload[1] == 'T'){
-        addData(payload[2],payload,"/save1.csv",3);
+        addData(payload[2],payload,"/saveS.csv",3);
       }else{
         addData(payload[1],payload,"/save.csv",2);
       }
@@ -415,6 +440,7 @@ void setup() {
   server.serveStatic("/js", SPIFFS, "/js");
   server.serveStatic("/style", SPIFFS, "/style");
   server.serveStatic("/save.csv", SPIFFS, "/save.csv");
+  server.serveStatic("/saveS.csv", SPIFFS, "/saveS.csv");
 
   timeClient.begin();
   server.begin();
